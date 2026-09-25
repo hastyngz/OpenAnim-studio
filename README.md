@@ -1,0 +1,2 @@
+# OpenAnim-studio
+Animation app
