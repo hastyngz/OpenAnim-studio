@@ -66,6 +66,13 @@ export interface StudioScene {
 }
 
 export interface RenderPassConfig {
+  qualityPreset: 'web-preview' | 'studio-4k' | 'transparent-webm'
+  resolutionWidth: number
+  resolutionHeight: number
+  transparent: boolean
+  bitrate: string
+  codec: string
+  pixelFormat: string
   engine: 'BLENDER_EEVEE_NEXT' | 'CYCLES'
   samples: number
   motionBlur: boolean
@@ -128,4 +135,4 @@ export interface TtsState {
   durationFrames: number
 }
 
-export type LayerProperties = Pick<Keyframe, 'x' | 'y' | 'scaleX' | 'scaleY' | 'rotation' | 'opacity'>
+export type LayerProperties = Pick<Keyframe, 'x' | 'y' | 'scaleX' | 'scaleY' | 'rotation' | 'opacity' | 'depth'>

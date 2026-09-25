@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { AudioLines, Eye, EyeOff, Image, Lock, LockOpen, Mic2, Plus, Shapes, Type, Upload, UserRound } from 'lucide-react'
+import { AudioLines, Camera, Eye, EyeOff, Image, Lock, LockOpen, Mic2, Plus, Shapes, Type, Upload, UserRound } from 'lucide-react'
 import { useStudioStore } from '../../store/useStudioStore'
-import { interpolateLayerProperties } from '../../store/useStudioStore'
+import { interpolateCameraKeyframe, interpolateLayerProperties } from '../../store/useStudioStore'
 import type { StudioAsset } from '../../types/studio'
 
 function createSilentWav(durationSeconds: number) {
@@ -42,9 +42,11 @@ function VoiceoverPanel() {
 
 export function Sidebar() {
   const [panel, setPanel] = useState<'layers' | 'voiceover'>('layers')
-  const { assets, bones, characterPresets, currentFrame, layers, selectedLayerId, selectLayer, toggleLayerLock, toggleLayerVisibility, updateLayerProperties, setLayerBone, addAsset, addAudioTrack, requestAssetPlacement, requestCharacterPlacement } = useStudioStore()
+  const { assets, bones, cameraKeyframes, characterPresets, currentFrame, layers, selectedLayerId, selectLayer, toggleLayerLock, toggleLayerVisibility, updateLayerProperties, updateCameraAtFrame, addCameraKeyframe, setLayerBone, addAsset, addAudioTrack, requestAssetPlacement, requestCharacterPlacement } = useStudioStore()
   const selectedLayer = layers.find((layer) => layer.id === selectedLayerId)
   const properties = selectedLayer ? interpolateLayerProperties(selectedLayer, currentFrame) : {}
+  const camera = interpolateCameraKeyframe(cameraKeyframes, currentFrame)
+  const depthValue = properties.depth ?? selectedLayer?.depth ?? 0
   const importFiles = (files: FileList | null) => {
     Array.from(files ?? []).forEach((file) => {
       const type = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg') ? 'svg' : file.type.startsWith('audio/') || /\.(mp3|wav)$/i.test(file.name) ? 'audio' : file.type.startsWith('image/') ? 'image' : null
@@ -55,7 +57,7 @@ export function Sidebar() {
     })
   }
   const placeAsset = (asset: StudioAsset) => asset.type === 'audio' ? addAudioTrack(asset.id) : requestAssetPlacement(asset.id)
-  const propertyField = (label: string, property: 'x' | 'y' | 'scaleX' | 'scaleY' | 'rotation' | 'opacity') => <label className="property-field" key={property}><span>{label}</span><input type="number" step={property === 'opacity' ? '0.1' : '1'} min={property === 'opacity' ? '0' : undefined} max={property === 'opacity' ? '1' : undefined} value={Number((properties[property] ?? (property.includes('scale') ? 1 : property === 'opacity' ? 1 : 0)).toFixed(2))} onChange={(event) => updateLayerProperties(selectedLayerId, { [property]: Number(event.target.value) })} /></label>
+  const propertyField = (label: string, property: 'x' | 'y' | 'scaleX' | 'scaleY' | 'rotation' | 'opacity' | 'depth') => <label className="property-field" key={property}><span>{label}</span><input type="number" step={property === 'opacity' ? '0.1' : '1'} min={property === 'opacity' ? '0' : undefined} max={property === 'opacity' ? '1' : undefined} value={Number((properties[property] ?? (property.includes('scale') || property === 'opacity' ? 1 : 0)).toFixed(2))} onChange={(event) => updateLayerProperties(selectedLayerId, { [property]: Number(event.target.value) })} /></label>
   return <aside className="sidebar">
     <div className="sidebar-tabs"><button type="button" className={panel === 'layers' ? 'selected' : ''} onClick={() => setPanel('layers')}>Layers &amp; Assets</button><button type="button" className={panel === 'voiceover' ? 'selected' : ''} onClick={() => setPanel('voiceover')}>Voiceover &amp; Script</button></div>
     {panel === 'voiceover' ? <VoiceoverPanel /> : <>
@@ -70,7 +72,9 @@ export function Sidebar() {
       </div>)}</div>
     </section>
     <div className="sidebar-divider" />
-    <section><div className="panel-heading"><h2 className="panel-title">Properties</h2><span className="property-frame">F{String(currentFrame).padStart(2, '0')}</span></div><div className="property-grid">{propertyField('X', 'x')}{propertyField('Y', 'y')}{propertyField('Scale X', 'scaleX')}{propertyField('Scale Y', 'scaleY')}{propertyField('Rotation', 'rotation')}{propertyField('Opacity', 'opacity')}</div>{selectedLayer?.type === 'path' && <label className="bone-select">Parent bone<select value={selectedLayer.boneId ?? ''} onChange={(event) => setLayerBone(selectedLayer.id, event.target.value || undefined)}><option value="">None</option>{bones.map((bone) => <option key={bone.id} value={bone.id}>{bone.name}</option>)}</select></label>}</section>
+    <section><div className="panel-heading"><h2 className="panel-title">Properties</h2><span className="property-frame">F{String(currentFrame).padStart(2, '0')}</span></div><div className="property-grid">{propertyField('X', 'x')}{propertyField('Y', 'y')}{propertyField('Scale X', 'scaleX')}{propertyField('Scale Y', 'scaleY')}{propertyField('Rotation', 'rotation')}{propertyField('Opacity', 'opacity')}{selectedLayer && propertyField('Depth / Z', 'depth')}</div>{selectedLayer && <label className="bone-select">Depth plane<select value={depthValue >= 65 ? 'background' : depthValue >= 25 ? 'midground' : 'foreground'} onChange={(event) => updateLayerProperties(selectedLayer.id, { depth: event.target.value === 'background' ? 80 : event.target.value === 'midground' ? 50 : 0 })}><option value="background">Background</option><option value="midground">Midground</option><option value="foreground">Foreground</option></select></label>}{selectedLayer?.type === 'path' && <label className="bone-select">Parent bone<select value={selectedLayer.boneId ?? ''} onChange={(event) => setLayerBone(selectedLayer.id, event.target.value || undefined)}><option value="">None</option>{bones.map((bone) => <option key={bone.id} value={bone.id}>{bone.name}</option>)}</select></label>}</section>
+    <div className="sidebar-divider" />
+    <section><div className="panel-heading"><h2 className="panel-title">Camera</h2><Camera size={15} color="var(--mint)" /></div><div className="property-grid">{(['x', 'y', 'zoom', 'tilt'] as const).map((property) => <label className="property-field" key={property}><span>{property}</span><input type="number" step={property === 'zoom' ? '0.05' : '1'} min={property === 'zoom' ? '0.1' : undefined} value={Number(camera[property].toFixed(2))} onChange={(event) => updateCameraAtFrame({ [property]: property === 'zoom' ? Math.max(0.1, Number(event.target.value)) : Number(event.target.value) })} /></label>)}</div><button type="button" className="camera-keyframe-button" onClick={() => addCameraKeyframe(currentFrame)}><Plus size={13} /> Key Camera at F{currentFrame}</button></section>
     <div className="sidebar-divider" />
     <section><div className="panel-heading"><h2 className="panel-title">Assets</h2><label className="upload-button" title="Upload SVG, PNG, JPEG, MP3, or WAV"><Upload size={14} /><input type="file" accept="image/svg+xml,image/png,image/jpeg,audio/mpeg,audio/wav" multiple onChange={(event) => importFiles(event.target.files)} />Upload Asset</label></div>
       <div className="asset-grid"><button type="button" className="asset-card" onClick={() => document.querySelector<HTMLInputElement>('.upload-button input')?.click()}><Upload size={19} /><span>Upload media</span></button><button type="button" className="asset-card"><Shapes size={19} /><span>Shapes</span></button>{assets.map((asset) => <button type="button" className="asset-card asset-card-file" key={asset.id} draggable onDragStart={(event) => event.dataTransfer.setData('application/x-openanim-asset', asset.id)} onClick={() => placeAsset(asset)} title={`Place ${asset.name}`}><span className="asset-icon">{asset.type === 'audio' ? <AudioLines size={18} /> : asset.type === 'svg' ? <Type size={18} /> : <Image size={18} />}</span><span>{asset.name}</span><small>{asset.type === 'audio' ? 'Audio track' : 'Place on canvas'}</small></button>)}</div>

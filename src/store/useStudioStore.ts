@@ -49,21 +49,36 @@ interface StudioState extends FrameState {
   duplicateScene: (id: string) => void
   deleteScene: (id: string) => void
   reorderScene: (id: string, direction: -1 | 1) => void
+  setSceneTransition: (transition: StudioScene['transition']) => void
   addCameraKeyframe: (frame: number) => void
   updateCameraAtFrame: (properties: Partial<Omit<CameraKeyframe, 'frame'>>) => void
   setRenderPass: (config: Partial<RenderPassConfig>) => void
 }
 
 const initialLayers: StudioLayer[] = [
-  { id: 'sun', name: 'Sun', type: 'shape', visible: true, locked: false, color: '#f5b642', keyframes: [{ frame: 0, x: 660, y: 120 }, { frame: 48, x: 720, y: 190 }] },
-  { id: 'mountain', name: 'Mountain range', type: 'shape', visible: true, locked: false, color: '#47636b', keyframes: [{ frame: 0, x: 0, y: 0 }] },
-  { id: 'title', name: 'Title card', type: 'text', visible: true, locked: true, color: '#f0e9d8', keyframes: [{ frame: 0, x: 120, y: 390, opacity: 1 }] },
+  { id: 'sun', name: 'Sun', type: 'shape', visible: true, locked: false, color: '#f5b642', depth: 45, keyframes: [{ frame: 0, x: 660, y: 120 }, { frame: 48, x: 720, y: 190 }] },
+  { id: 'mountain', name: 'Mountain range', type: 'shape', visible: true, locked: false, color: '#47636b', depth: 80, keyframes: [{ frame: 0, x: 0, y: 0 }] },
+  { id: 'title', name: 'Title card', type: 'text', visible: true, locked: true, color: '#f0e9d8', depth: 0, keyframes: [{ frame: 0, x: 120, y: 390, opacity: 1 }] },
 ]
 
 const cloneLayers = (layers: StudioLayer[]) => layers.map((layer) => ({ ...layer, keyframes: layer.keyframes.map((keyframe) => ({ ...keyframe, path: keyframe.path?.map((point) => ({ ...point })) })), lipSync: layer.lipSync?.map((event) => ({ ...event })) }))
 const initialCamera: CameraKeyframe[] = [{ frame: 0, x: 0, y: 0, zoom: 1, tilt: 0 }]
 const makeInitialScene = (id: string, name: string, layers: StudioLayer[]): StudioScene => ({ id, name, layers: cloneLayers(layers), audioTracks: [], bones: [], cameraKeyframes: [...initialCamera], totalFrames: 96, transition: 'cut' })
 const initialScenes = [makeInitialScene('scene-1', 'Scene 1', initialLayers), makeInitialScene('scene-2', 'Scene 2', initialLayers), makeInitialScene('scene-3', 'Scene 3', initialLayers)]
+
+function duplicateSceneData(scene: StudioScene, id: string): StudioScene {
+  const layerIds = new Map(scene.layers.map((layer) => [layer.id, `${layer.id}-${id}`]))
+  const boneIds = new Map(scene.bones.map((bone) => [bone.id, `${bone.id}-${id}`]))
+  return {
+    ...scene,
+    id,
+    name: `${scene.name} Copy`,
+    layers: cloneLayers(scene.layers).map((layer) => ({ ...layer, id: layerIds.get(layer.id)!, boneId: layer.boneId ? boneIds.get(layer.boneId) : undefined })),
+    audioTracks: scene.audioTracks.map((track) => ({ ...track, id: `${track.id}-${id}` })),
+    bones: scene.bones.map((bone) => ({ ...bone, id: boneIds.get(bone.id)!, parentId: bone.parentId ? boneIds.get(bone.parentId) : undefined })),
+    cameraKeyframes: scene.cameraKeyframes.map((keyframe) => ({ ...keyframe })),
+  }
+}
 
 function persistActiveScene(state: StudioState): StudioState {
   return { ...state, scenes: state.scenes.map((scene) => scene.id === state.activeSceneId ? { ...scene, layers: state.layers, audioTracks: state.audioTracks, bones: state.bones, cameraKeyframes: state.cameraKeyframes, totalFrames: state.totalFrames } : scene) }
@@ -87,7 +102,7 @@ export const useStudioStore = create<StudioState>((set) => ({
   scenes: initialScenes,
   activeSceneId: 'scene-1',
   cameraKeyframes: [...initialCamera],
-  renderPass: { engine: 'BLENDER_EEVEE_NEXT', samples: 64, motionBlur: true, depthOfField: false },
+  renderPass: { qualityPreset: 'web-preview', resolutionWidth: 1920, resolutionHeight: 1080, transparent: false, bitrate: '12M', codec: 'libx264', pixelFormat: 'yuv420p', engine: 'BLENDER_EEVEE_NEXT', samples: 32, motionBlur: false, depthOfField: false },
   tts: { script: '', voice: 'female', pitch: 1, rate: 1, durationFrames: 0 },
   placementAssetId: null,
   placementCharacterPresetId: null,
@@ -187,32 +202,15 @@ export const useStudioStore = create<StudioState>((set) => ({
     }
   }),
   addScene: () => set((state) => {
-    const nextIndex = state.scenes.length + 1
-    const newSceneId = `scene-${nextIndex}`
-    const snapshot = {
-      id: newSceneId,
-      name: `Scene ${nextIndex.toString().padStart(2, '0')}`,
-      layers: cloneLayers(state.layers),
-      audioTracks: state.audioTracks.map((track) => ({ ...track })),
-      bones: state.bones.map((bone) => ({ ...bone })),
-      cameraKeyframes: state.cameraKeyframes.map((keyframe) => ({ ...keyframe })),
-      totalFrames: state.totalFrames,
-      transition: 'cut' as const,
-    }
-    return { ...state, scenes: [...state.scenes, snapshot], activeSceneId: newSceneId, layers: cloneLayers(state.layers), audioTracks: state.audioTracks.map((track) => ({ ...track })), bones: state.bones.map((bone) => ({ ...bone })), cameraKeyframes: state.cameraKeyframes.map((keyframe) => ({ ...keyframe })), totalFrames: state.totalFrames, selectedLayerId: state.layers[0]?.id ?? state.selectedLayerId }
+    const nextIndex = Math.max(0, ...state.scenes.map((scene) => Number(scene.name.match(/\d+/)?.[0] ?? 0))) + 1
+    const newSceneId = `scene-${Date.now()}-${state.scenes.length}`
+    const snapshot: StudioScene = { id: newSceneId, name: `Scene ${nextIndex}`, layers: [], audioTracks: [], bones: [], cameraKeyframes: [...initialCamera], totalFrames: state.totalFrames, transition: 'cut' }
+    return { ...state, scenes: [...state.scenes, snapshot], activeSceneId: newSceneId, layers: [], audioTracks: [], bones: [], cameraKeyframes: [...initialCamera], currentFrame: 0, totalFrames: snapshot.totalFrames, selectedLayerId: '' }
   }),
   duplicateScene: (id) => set((state) => {
     const sourceScene = state.scenes.find((scene) => scene.id === id)
     if (!sourceScene) return state
-    const duplicated = {
-      ...sourceScene,
-      id: `${sourceScene.id}-copy-${Date.now()}`,
-      name: `${sourceScene.name} Copy`,
-      layers: cloneLayers(sourceScene.layers),
-      audioTracks: sourceScene.audioTracks.map((track) => ({ ...track })),
-      bones: sourceScene.bones.map((bone) => ({ ...bone })),
-      cameraKeyframes: sourceScene.cameraKeyframes.map((keyframe) => ({ ...keyframe })),
-    }
+    const duplicated = duplicateSceneData(sourceScene, `${sourceScene.id}-copy-${Date.now()}-${state.scenes.length}`)
     const nextScenes = [...state.scenes, duplicated]
     return { ...state, scenes: nextScenes, activeSceneId: duplicated.id, layers: cloneLayers(duplicated.layers), audioTracks: duplicated.audioTracks.map((track) => ({ ...track })), bones: duplicated.bones.map((bone) => ({ ...bone })), cameraKeyframes: duplicated.cameraKeyframes.map((keyframe) => ({ ...keyframe })), totalFrames: duplicated.totalFrames, selectedLayerId: duplicated.layers[0]?.id ?? state.selectedLayerId }
   }),
@@ -241,6 +239,7 @@ export const useStudioStore = create<StudioState>((set) => ({
     ;[nextScenes[index], nextScenes[targetIndex]] = [nextScenes[targetIndex], nextScenes[index]]
     return { ...state, scenes: nextScenes }
   }),
+  setSceneTransition: (transition) => set((state) => ({ ...state, scenes: state.scenes.map((scene) => scene.id === state.activeSceneId ? { ...scene, transition } : scene) })),
   addCameraKeyframe: (frame) => set((state) => persistActiveScene({ ...state, cameraKeyframes: (() => {
     const snappedFrame = snapFrame(frame)
     const next = state.cameraKeyframes.find((keyframe) => keyframe.frame === snappedFrame)
@@ -279,17 +278,26 @@ function createVisemeEvents(script: string, durationFrames: number): VisemeEvent
 
 export function interpolateLayerProperties(layer: StudioLayer, frame: number): LayerProperties {
   const keyframes = layer.keyframes
-  if (!keyframes.length) return {}
+  if (!keyframes.length) return { depth: layer.depth ?? 0 }
   const before = [...keyframes].reverse().find((keyframe) => keyframe.frame <= frame) ?? keyframes[0]
   const after = keyframes.find((keyframe) => keyframe.frame >= frame) ?? before
-  if (before.frame === after.frame) return before
+  if (before.frame === after.frame) return { ...before, depth: before.depth ?? layer.depth ?? 0 }
   const amount = applyEasing((frame - before.frame) / (after.frame - before.frame), after.easing, after.customBezier)
   const interpolate = (key: keyof LayerProperties) => {
     const start = before[key] ?? after[key]
     const end = after[key] ?? before[key]
     return start === undefined || end === undefined ? undefined : start + (end - start) * amount
   }
-  return { x: interpolate('x'), y: interpolate('y'), scaleX: interpolate('scaleX'), scaleY: interpolate('scaleY'), rotation: interpolate('rotation'), opacity: interpolate('opacity') }
+  return { x: interpolate('x'), y: interpolate('y'), scaleX: interpolate('scaleX'), scaleY: interpolate('scaleY'), rotation: interpolate('rotation'), opacity: interpolate('opacity'), depth: interpolate('depth') ?? layer.depth ?? 0 }
+}
+
+export function interpolateCameraKeyframe(keyframes: CameraKeyframe[], frame: number): CameraKeyframe {
+  if (!keyframes.length) return { frame, x: 0, y: 0, zoom: 1, tilt: 0 }
+  const before = [...keyframes].reverse().find((keyframe) => keyframe.frame <= frame) ?? keyframes[0]
+  const after = keyframes.find((keyframe) => keyframe.frame >= frame) ?? before
+  const amount = before.frame === after.frame ? 0 : (frame - before.frame) / (after.frame - before.frame)
+  const lerp = (start: number, end: number) => start + (end - start) * amount
+  return { frame, x: lerp(before.x, after.x), y: lerp(before.y, after.y), zoom: lerp(before.zoom, after.zoom), tilt: lerp(before.tilt, after.tilt) }
 }
 
 function applyEasing(amount: number, easing: EasingType = 'linear', customBezier?: [number, number, number, number]) {

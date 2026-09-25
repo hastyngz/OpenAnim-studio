@@ -7,7 +7,7 @@ import { useStudioStore } from './store/useStudioStore'
 import './App.css'
 
 function App() {
-  const { currentFrame, fps, isPlaying, loop, playbackSpeed, setCurrentFrame, setPlaying } = useStudioStore()
+  const { currentFrame, totalFrames, fps, isPlaying, loop, playbackSpeed, setCurrentFrame, setPlaying } = useStudioStore()
 
   useEffect(() => {
     if (!isPlaying) return
@@ -31,7 +31,7 @@ function App() {
       <Timeline />
       <div className="status-bar">
         <span><i className="status-dot" /> Autosaved just now</span>
-        <span>Frame {String(currentFrame).padStart(2, '0')} / 96</span>
+        <span>Frame {String(currentFrame).padStart(2, '0')} / {totalFrames}</span>
         <button type="button" className="status-play" onClick={() => setPlaying(!isPlaying)}>{isPlaying ? 'Playing' : 'Ready'}</button>
       </div>
     </main>
